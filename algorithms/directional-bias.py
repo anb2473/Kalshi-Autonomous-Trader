@@ -1,102 +1,221 @@
-from db import (get_buy_countdown, 
-                update_target_timestamp, 
-                get_target_timestamp_age, 
-                decrease_buy_countdown, 
-                decrease_sell_countdown, 
-                create_position, 
-                is_target, 
-                create_target,
-                is_position,
-                start_sell_countdown,
-                get_sell_countdown,
-                update_position_timestamp, 
-                get_position_timestamp_age, )
+from db import (
+    get_buy_countdown,
+    update_target_timestamp,
+    get_target_timestamp_age,
+    decrease_buy_countdown,
+    decrease_sell_countdown,
+    create_position,
+    is_target,
+    create_target,
+    is_position,
+    start_sell_countdown,
+    get_sell_countdown,
+    update_position_timestamp,
+    get_position_timestamp_age,
+)
 
-# This is a static algorithm that determines whether to buy a target or sell a position based on price thresholds.
+from utils.logger import setup_logger
 
-# Determine whether market buy countdown should be started, an immediate purchase made, or the market should be disregarded
-def begin_investment_countdown(price, immediateBuyThreshold, buyCountdownThreshold, marketTicker):
-    if price > immediateBuyThreshold:
-        create_position(marketTicker)
-        return True
+# Configure logging
+logger = setup_logger(__name__)
+
+# Constants
+BUY_THRESHOLD = 155.0
+BUY_COUNTDOWN_THRESHOLD = 150.0
+SELL_THRESHOLD = 160.0
+SELL_COUNTDOWN_THRESHOLD = 155.0
+
+class DirectionalBiasError(Exception):
+    """Base class for directional bias exceptions."""
+    def __init__(self, message: str, *args: object) -> None:
+        self.message = message
+        super().__init__(message, *args)
+
+    def __str__(self) -> str:
+        return f"DirectionalBiasError: {self.message}"
+
+class InvalidThresholdError(DirectionalBiasError):
+    """Raised when thresholds are invalid."""
+    def __init__(self, message: str, threshold_type: str, value: float, *args: object) -> None:
+        self.threshold_type = threshold_type
+        self.value = value
+        super().__init__(message, *args)
+
+    def __str__(self) -> str:
+        return f"InvalidThresholdError: {self.message} (Type: {self.threshold_type}, Value: {self.value})"
+
+class MarketStateError(DirectionalBiasError):
+    """Raised when market state is invalid."""
+    def __init__(self, message: str, market_ticker: str, *args: object) -> None:
+        self.market_ticker = market_ticker
+        super().__init__(message, *args)
+
+    def __str__(self) -> str:
+        return f"MarketStateError: {self.message} (Ticker: {self.market_ticker})"
+
+def begin_investment_countdown(
+    price: float, 
+    market_ticker: str
+) -> bool:
+    """
+    Determine whether to start market buy countdown or make immediate purchase.
     
-    if price > buyCountdownThreshold:
-        create_target(marketTicker)
-        return False
+    Args:
+        price: Current market price
+        market_ticker: Market identifier
     
-    return False
-
-# Decrease buy countdown and update timestamp
-def check_investment_countdown(marketTicker):
-    lastChecked = get_target_timestamp_age(marketTicker)
-    if lastChecked is None:
-        update_target_timestamp(marketTicker)
-        return None
-    
-    decrease_buy_countdown(marketTicker, lastChecked)
-    update_target_timestamp(marketTicker)
-
-    return get_buy_countdown(marketTicker)
-
-# Evaluate if the investment should be made based on the current price and thresholds
-# Input: market ticker, static price, thresholds
-def evaluate_buy_target(price, immediateBuyThreshold, buyCountdownThreshold, marketTicker):    
-    if not is_target(marketTicker):
-        return begin_investment_countdown(price, immediateBuyThreshold, buyCountdownThreshold, marketTicker)
-    
-    buyCountdown = check_investment_countdown(marketTicker)
-
-    if buyCountdown is None:
-        return False
-
-    if buyCountdown <= 0:
-        return True
-    
-    return False
-
-# Check sell countdown and determine if the position should be sold
-def begin_sell_countdown(price, immediateSellThreshold, sellCountdownThreshold, marketTicker):
-    if price < immediateSellThreshold:
-        return True
-    
-    if price < sellCountdownThreshold:
-        start_sell_countdown(marketTicker)
-        return False
-    
-    return False
-
-def check_sell_countdown(marketTicker):
-    # update timestamp for position
-    lastChecked = get_position_timestamp_age(marketTicker)
-    if lastChecked is None:
-        update_position_timestamp(marketTicker)
-        return None
-
-    # decrease sell countdown
-    
-    decrease_sell_countdown(marketTicker, lastChecked)
-
-    sellCountdown = get_sell_countdown(marketTicker)
-    
-    if sellCountdown is not None:
-        update_position_timestamp(marketTicker)
+    Returns:
+        bool: True if immediate purchase should be made, False otherwise
+    """
+    try:
+        if price > BUY_THRESHOLD:
+            logger.info(f"Creating position for {market_ticker} at price {price}")
+            create_position(market_ticker)
+            return True
         
-        return sellCountdown
-    
-    return None
+        if price > BUY_COUNTDOWN_THRESHOLD:
+            logger.info(f"Creating target for {market_ticker} at price {price}")
+            create_target(market_ticker)
+            return False
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error in begin_investment_countdown: {str(e)}")
+        raise
 
-# Evaluate if the position should be sold
-# Input: market ticker, static price, thresholds
-# Throw: ValueError if market ticker is not a position
-def evaluate_sell_position(price, immediateSellThreshold, sellCountdownThreshold, marketTicker):
-    if not is_position(marketTicker):
-        raise ValueError("Market ticker is not a position")
+def check_investment_countdown(market_ticker: str) -> Optional[int]:
+    """
+    Decrease buy countdown and update timestamp.
     
-    sellCountdown = check_sell_countdown(marketTicker)
+    Args:
+        market_ticker: Market identifier
+    
+    Returns:
+        Optional[int]: Current countdown value or None if not applicable
+    """
+    try:
+        last_checked = get_target_timestamp_age(market_ticker)
+        if last_checked is None:
+            logger.debug(f"No timestamp found for {market_ticker}, updating")
+            update_target_timestamp(market_ticker)
+            return None
+        
+        decrease_buy_countdown(market_ticker, last_checked)
+        update_target_timestamp(market_ticker)
+        return get_buy_countdown(market_ticker)
+    except Exception as e:
+        logger.error(f"Error in check_investment_countdown: {str(e)}")
+        raise
 
-    if sellCountdown <= 0:
-        return True
-    if sellCountdown is None:
-        return True
+def evaluate_buy_target(
+    price: float, 
+    market_ticker: str
+) -> bool:
+    """
+    Evaluate if investment should be made based on current price and thresholds.
     
-    return begin_sell_countdown(price, immediateSellThreshold, sellCountdownThreshold, marketTicker)
+    Args:
+        price: Current market price
+        market_ticker: Market identifier
+    
+    Returns:
+        bool: True if investment should be made, False otherwise
+    
+    Raises:
+        MarketStateError: If market state is invalid
+    """
+    try:
+        if not is_target(market_ticker):
+            return begin_investment_countdown(price, market_ticker)
+        
+        countdown = check_investment_countdown(market_ticker)
+        if countdown is None:
+            return False
+            
+        return countdown <= 0
+    except Exception as e:
+        logger.error(f"Error in evaluate_buy_target: {str(e)}")
+        raise
+
+def begin_sell_countdown(
+    price: float, 
+    market_ticker: str
+) -> bool:
+    """
+    Determine whether to start market sell countdown or make immediate sale.
+    
+    Args:
+        price: Current market price
+        market_ticker: Market identifier
+    
+    Returns:
+        bool: True if immediate sale should be made, False otherwise
+    """
+    try:
+        if price < SELL_THRESHOLD:
+            logger.info(f"Selling position for {market_ticker} at price {price}")
+            return True
+        
+        if price < SELL_COUNTDOWN_THRESHOLD:
+            logger.info(f"Starting sell countdown for {market_ticker} at price {price}")
+            start_sell_countdown(market_ticker)
+            return False
+        
+        return False
+    except Exception as e:
+        logger.error(f"Error in begin_sell_countdown: {str(e)}")
+        raise
+
+def check_sell_countdown(market_ticker: str) -> Optional[int]:
+    """
+    Decrease sell countdown and update timestamp.
+    
+    Args:
+        market_ticker: Market identifier
+    
+    Returns:
+        Optional[int]: Current countdown value or None if not applicable
+    """
+    try:
+        last_checked = get_position_timestamp_age(market_ticker)
+        if last_checked is None:
+            logger.debug(f"No timestamp found for {market_ticker}, updating")
+            update_position_timestamp(market_ticker)
+            return None
+        
+        decrease_sell_countdown(market_ticker, last_checked)
+        update_position_timestamp(market_ticker)
+        return get_sell_countdown(market_ticker)
+    except Exception as e:
+        logger.error(f"Error in check_sell_countdown: {str(e)}")
+        raise
+
+def evaluate_sell_position(
+    price: float, 
+    market_ticker: str
+) -> bool:
+    """
+    Evaluate if position should be sold based on current price and thresholds.
+    
+    Args:
+        price: Current market price
+        market_ticker: Market identifier
+    
+    Returns:
+        bool: True if position should be sold, False otherwise
+    
+    Raises:
+        MarketStateError: If market state is invalid
+    """
+    try:
+        if not is_position(market_ticker):
+            raise MarketStateError("Market ticker is not a position", market_ticker)
+        
+        countdown = check_sell_countdown(market_ticker)
+        if countdown is None:
+            return False
+            
+        return countdown <= 0 or begin_sell_countdown(price, market_ticker)
+    except Exception as e:
+        logger.error(f"Error in evaluate_sell_position: {str(e)}")
+        raise
