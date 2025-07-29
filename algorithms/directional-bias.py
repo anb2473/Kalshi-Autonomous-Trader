@@ -1,3 +1,5 @@
+from typing import Optional
+
 from db import (
     get_buy_countdown,
     update_target_timestamp,
@@ -20,10 +22,12 @@ from utils.logger import setup_logger
 logger = setup_logger(__name__)
 
 # Constants
-BUY_THRESHOLD = 155.0
-BUY_COUNTDOWN_THRESHOLD = 150.0
-SELL_THRESHOLD = 160.0
-SELL_COUNTDOWN_THRESHOLD = 155.0
+from config import (
+    BUY_THRESHOLD, 
+    BUY_COUNTDOWN_THRESHOLD, 
+    SELL_THRESHOLD, 
+    SELL_COUNTDOWN_THRESHOLD
+)
 
 class DirectionalBiasError(Exception):
     """Base class for directional bias exceptions."""
@@ -33,16 +37,6 @@ class DirectionalBiasError(Exception):
 
     def __str__(self) -> str:
         return f"DirectionalBiasError: {self.message}"
-
-class InvalidThresholdError(DirectionalBiasError):
-    """Raised when thresholds are invalid."""
-    def __init__(self, message: str, threshold_type: str, value: float, *args: object) -> None:
-        self.threshold_type = threshold_type
-        self.value = value
-        super().__init__(message, *args)
-
-    def __str__(self) -> str:
-        return f"InvalidThresholdError: {self.message} (Type: {self.threshold_type}, Value: {self.value})"
 
 class MarketStateError(DirectionalBiasError):
     """Raised when market state is invalid."""
