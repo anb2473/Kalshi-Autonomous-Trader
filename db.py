@@ -5,8 +5,10 @@ import datetime
 # position: all active positions
 # targets: all target markets that have not been closed
 
-SELL_COUNTDOWN = 10
-BUY_COUNTDOWN = 10
+from config import (
+    SELL_COUNTDOWN,
+    BUY_COUNTDOWN
+)
 
 con = sqlite3.connect('trading.db')
 c = con.cursor()
